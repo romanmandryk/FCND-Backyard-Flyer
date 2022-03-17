@@ -8,6 +8,8 @@ from udacidrone import Drone
 from udacidrone.connection import MavlinkConnection, WebSocketConnection  # noqa: F401
 from udacidrone.messaging import MsgID
 
+# 5 for drunken square, 0.1 for precise but lots of corrections
+TOLERANCE_CHANGE_DIRECTION_METRES = 1
 
 class States(Enum):
     MANUAL = 0
@@ -30,83 +32,76 @@ class BackyardFlyer(Drone):
         # initial state
         self.flight_state = States.MANUAL
 
-        # TODO: Register all your callbacks here
+        # Register all your callbacks here
         self.register_callback(MsgID.LOCAL_POSITION, self.local_position_callback)
         self.register_callback(MsgID.LOCAL_VELOCITY, self.velocity_callback)
         self.register_callback(MsgID.STATE, self.state_callback)
 
     def local_position_callback(self):
-        """
-        TODO: Implement this method
-
-        This triggers when `MsgID.LOCAL_POSITION` is received and self.local_position contains new data
-        """
-        pass
+        print('lp', self.local_position[0:2])
+        if self.flight_state == States.TAKEOFF:
+            if -1.0 * self.local_position[2] > 0.95 * self.target_position[2]:
+                self.all_waypoints = self.calculate_box()
+                self.waypoint_transition()
+        elif self.flight_state == States.WAYPOINT:
+            if np.linalg.norm(self.target_position[0:2] - self.local_position[0:2]) < TOLERANCE_CHANGE_DIRECTION_METRES:
+                if len(self.all_waypoints) > 0:
+                    self.waypoint_transition()
+                elif np.linalg.norm(self.local_velocity[0:2]) < 1.0:
+                    self.landing_transition()
+        elif self.flight_state == States.LANDING:
+            if self.global_position[2] - self.global_home[2] < 0.1:
+                if abs(self.local_position[2]) < 0.01:
+                    self.disarming_transition()
 
     def velocity_callback(self):
-        """
-        TODO: Implement this method
-
-        This triggers when `MsgID.LOCAL_VELOCITY` is received and self.local_velocity contains new data
-        """
+        # not needed as location_callback is as good for the task
         pass
 
     def state_callback(self):
-        """
-        TODO: Implement this method
+        print('state', self.armed, self.guided)
 
-        This triggers when `MsgID.STATE` is received and self.armed and self.guided contain new data
-        """
-        pass
+        if self.flight_state == States.MANUAL:
+            self.arming_transition()
+        elif self.flight_state == States.ARMING and self.armed:
+            self.takeoff_transition()
+        elif self.flight_state == States.DISARMING and not self.armed and not self.guided:
+            self.manual_transition()
 
     def calculate_box(self):
-        """TODO: Fill out this method
-        
-        1. Return waypoints to fly a box
-        """
-        pass
+        print("setting waypoints")
+        local_waypoints = [[15.0, 0.0, 3.0], [15.0, 15.0, 3.0], [0.0, 15.0, 3.0], [0.0, 0.0, 3.0]]
+        return local_waypoints
 
     def arming_transition(self):
-        """TODO: Fill out this method
-        
-        1. Take control of the drone
-        2. Pass an arming command
-        3. Set the home location to current position
-        4. Transition to the ARMING state
-        """
+
+        self.take_control()
+        self.arm()
+        self.set_home_position(self.global_position[0], self.global_position[1], self.global_position[2])
+        self.flight_state = States.ARMING
         print("arming transition")
 
     def takeoff_transition(self):
-        """TODO: Fill out this method
-        
-        1. Set target_position altitude to 3.0m
-        2. Command a takeoff to 3.0m
-        3. Transition to the TAKEOFF state
-        """
+
+        self.target_position[2] = 3.0
+        self.takeoff(self.target_position[2])
+        self.flight_state = States.TAKEOFF
         print("takeoff transition")
 
     def waypoint_transition(self):
-        """TODO: Fill out this method
-    
-        1. Command the next waypoint position
-        2. Transition to WAYPOINT state
-        """
-        print("waypoint transition")
+        self.target_position = self.all_waypoints.pop(0)
+        self.cmd_position(self.target_position[0], self.target_position[1], self.target_position[2], 0.0)
+        self.flight_state = States.WAYPOINT
+        print("waypoint transition to ", self.target_position)
 
     def landing_transition(self):
-        """TODO: Fill out this method
-        
-        1. Command the drone to land
-        2. Transition to the LANDING state
-        """
+        self.land()
+        self.flight_state = States.LANDING
         print("landing transition")
 
     def disarming_transition(self):
-        """TODO: Fill out this method
-        
-        1. Command the drone to disarm
-        2. Transition to the DISARMING state
-        """
+        self.disarm()
+        self.flight_state = States.DISARMING
         print("disarm transition")
 
     def manual_transition(self):
