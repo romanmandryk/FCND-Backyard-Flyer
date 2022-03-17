@@ -10,6 +10,8 @@ from udacidrone.messaging import MsgID
 
 # 5 for drunken square, 0.1 for precise but lots of corrections
 TOLERANCE_CHANGE_DIRECTION_METRES = 1
+# precise landing at home even if tolerance is high
+ALLOWED_LANDING_DISTANCE_FROM_HOME = 1
 
 class States(Enum):
     MANUAL = 0
@@ -47,7 +49,8 @@ class BackyardFlyer(Drone):
             if np.linalg.norm(self.target_position[0:2] - self.local_position[0:2]) < TOLERANCE_CHANGE_DIRECTION_METRES:
                 if len(self.all_waypoints) > 0:
                     self.waypoint_transition()
-                elif np.linalg.norm(self.local_velocity[0:2]) < 1.0:
+                elif np.linalg.norm(self.local_velocity[0:2]) < 1.0 and np.linalg.norm(self.local_position[0:2] - [0, 0]) < ALLOWED_LANDING_DISTANCE_FROM_HOME:
+                    print(np.linalg.norm(self.local_position[0:2] - [0, 0]))
                     self.landing_transition()
         elif self.flight_state == States.LANDING:
             if self.global_position[2] - self.global_home[2] < 0.1:
@@ -59,13 +62,13 @@ class BackyardFlyer(Drone):
         pass
 
     def state_callback(self):
-        print('state', self.armed, self.guided)
+        print('state', self.armed, self.guided, self.flight_state)
 
         if self.flight_state == States.MANUAL:
             self.arming_transition()
         elif self.flight_state == States.ARMING and self.armed:
             self.takeoff_transition()
-        elif self.flight_state == States.DISARMING and not self.armed and not self.guided:
+        elif self.flight_state == States.DISARMING and not self.armed:
             self.manual_transition()
 
     def calculate_box(self):
